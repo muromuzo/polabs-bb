@@ -139,6 +139,21 @@
     <div id="errBox" class="hidden mt-3 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 leading-relaxed"></div>
   </div>
 
+  <!-- ══ 구/군 필터 (데이터 로드 후 표시) ═══════════════════════════ -->
+  <div id="sgguSection" class="hidden bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+    <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+      <h2 class="flex items-center text-base font-semibold text-gray-700">
+        📍 구/군 필터
+        <span class="text-xs font-normal text-gray-400 ml-2">복수 선택 가능 · 미선택 시 전체</span>
+      </h2>
+      <div class="flex gap-2">
+        <button onclick="selectAllSggu()" class="text-xs text-blue-500 border border-blue-200 px-3 py-1 rounded-lg hover:bg-blue-50">전체 선택</button>
+        <button onclick="clearSggu()"     class="text-xs text-gray-500 border border-gray-200 px-3 py-1 rounded-lg hover:bg-gray-50">선택 해제</button>
+      </div>
+    </div>
+    <div id="sgguChips" class="flex flex-wrap gap-2 max-h-36 overflow-y-auto"></div>
+  </div>
+
   <!-- ══ STEP 2 : 과목 선택 ═════════════════════════════════════════ -->
   <div id="catSection" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
     <div class="flex items-center justify-between flex-wrap gap-2 mb-4">
@@ -291,6 +306,7 @@ let catItemMap    = {};   // catId → Set(itemName)
 let selCats       = new Set();  // 선택된 과목 ID
 let selItems      = new Set();  // 선택된 세부항목명
 let selClCd       = new Set(['31']); // 선택된 기관종별 코드 (기본: 의원)
+let selSggu       = new Set();       // 선택된 구/군명
 let sortKey       = 'yadmNm';
 let sortDir       = 1;
 let curPage       = 1;
@@ -299,6 +315,31 @@ let busy          = false;
 
 const CL_NM = {'01':'상급종합병원','11':'종합병원','21':'병원','31':'의원',
                 '28':'치과병원','29':'치과의원','41':'한방병원','51':'한의원'};
+
+// ─── 구/군 칩 ──────────────────────────────────────────────────
+function buildSgguChips(){
+  const names=[...new Set(allData.map(r=>r.sgguCdNm||'').filter(Boolean))].sort();
+  if(!names.length){ $('sgguSection').classList.add('hidden'); return; }
+  const wrap=$('sgguChips');
+  wrap.innerHTML='';
+  names.forEach(nm=>{
+    const c=document.createElement('span');
+    c.className='chip'+(selSggu.has(nm)?' on':'');
+    c.textContent=nm;
+    c.onclick=()=>{ selSggu.has(nm)?selSggu.delete(nm):selSggu.add(nm); c.classList.toggle('on'); applyFilter(); };
+    wrap.appendChild(c);
+  });
+  $('sgguSection').classList.remove('hidden');
+}
+function selectAllSggu(){
+  $('sgguChips').querySelectorAll('.chip').forEach(c=>{ selSggu.add(c.textContent); c.classList.add('on'); });
+  applyFilter();
+}
+function clearSggu(){
+  selSggu.clear();
+  $('sgguChips').querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
+  applyFilter();
+}
 
 function initClCdChips(){
   document.querySelectorAll('#clCdChips .chip').forEach(chip=>{
@@ -488,6 +529,7 @@ async function loadData(){
     });
     buildCatMap();
     buildCatGrid();
+    buildSgguChips();
     applyFilter();
     $('statusMsg').textContent=`✅ ${allData.length.toLocaleString()}건 로드 완료`;
     $('s1badge').classList.add('done');
@@ -613,9 +655,12 @@ function clearItems(){
 
 // ─── 데이터 필터링 ─────────────────────────────────────────────
 function applyFilter(){
-  // 과목 기준 먼저
+  // 구/군 필터
   let base=allData;
-  if(selCats.size>0) base=allData.filter(r=>selCats.has(r._catId));
+  if(selSggu.size>0) base=base.filter(r=>selSggu.has(r.sgguCdNm||''));
+
+  // 과목 기준
+  if(selCats.size>0) base=base.filter(r=>selCats.has(r._catId));
 
   // 세부 항목
   if(selItems.size>0) filteredData=base.filter(r=>selItems.has(r._itemName));
@@ -819,6 +864,9 @@ function resetAll(){
   document.querySelectorAll('#clCdChips .chip').forEach(c=>{
     c.classList.toggle('on', c.dataset.cd==='31');
   });
+  selSggu.clear();
+  $('sgguSection').classList.add('hidden');
+  $('sgguChips').innerHTML='';
   // catSection은 유지, 나머지만 숨김
   ['itemSection','resultSection','summarySection'].forEach(id=>$(id).classList.add('hidden'));
   ['s1badge','s2badge','s3badge'].forEach(id=>{const el=$(id);if(el)el.classList.remove('done');});
