@@ -104,15 +104,18 @@
         </select>
       </div>
       <!-- 기관 종별 -->
-      <div>
-        <label class="block text-xs font-medium text-gray-500 mb-1">🏥 기관 종별</label>
-        <select id="clCd" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
-          <option value="">전체</option>
-          <option value="01">상급종합병원</option><option value="11">종합병원</option>
-          <option value="21">병원</option><option value="31">의원</option>
-          <option value="28">치과병원</option><option value="29">치과의원</option>
-          <option value="41">한방병원</option><option value="51">한의원</option>
-        </select>
+      <div class="sm:col-span-2">
+        <label class="block text-xs font-medium text-gray-500 mb-2">🏥 기관 종별 <span class="font-normal text-gray-400">(복수 선택 가능 · 미선택 시 전체)</span></label>
+        <div id="clCdChips" class="flex flex-wrap gap-2">
+          <span class="chip" data-cd="01">상급종합병원</span>
+          <span class="chip" data-cd="11">종합병원</span>
+          <span class="chip" data-cd="21">병원</span>
+          <span class="chip on" data-cd="31">의원</span>
+          <span class="chip" data-cd="28">치과병원</span>
+          <span class="chip" data-cd="29">치과의원</span>
+          <span class="chip" data-cd="41">한방병원</span>
+          <span class="chip" data-cd="51">한의원</span>
+        </div>
       </div>
     </div>
     <!-- 버튼 영역 -->
@@ -287,11 +290,25 @@ let displayData   = [];   // 테이블 표시용
 let catItemMap    = {};   // catId → Set(itemName)
 let selCats       = new Set();  // 선택된 과목 ID
 let selItems      = new Set();  // 선택된 세부항목명
+let selClCd       = new Set(['31']); // 선택된 기관종별 코드 (기본: 의원)
 let sortKey       = 'yadmNm';
 let sortDir       = 1;
 let curPage       = 1;
 const PAGE_SZ     = 50;
 let busy          = false;
+
+const CL_NM = {'01':'상급종합병원','11':'종합병원','21':'병원','31':'의원',
+                '28':'치과병원','29':'치과의원','41':'한방병원','51':'한의원'};
+
+function initClCdChips(){
+  document.querySelectorAll('#clCdChips .chip').forEach(chip=>{
+    chip.onclick=()=>{
+      const cd=chip.dataset.cd;
+      if(selClCd.has(cd)){ selClCd.delete(cd); chip.classList.remove('on'); }
+      else { selClCd.add(cd); chip.classList.add('on'); }
+    };
+  });
+}
 
 // API는 /api/proxy 를 통해 서버에서 호출 (CORS 없음, API 키 숨김)
 
@@ -391,55 +408,63 @@ async function loadData(){
   selItems.clear();
   ['itemSection','resultSection','summarySection'].forEach(id=>$(id).classList.add('hidden'));
 
-  const ex={};
-  const s=$('sido').value, c=$('clCd').value;
-  if(s) ex.sidoCd=s;
-  if(c) ex.clCd=c;
+  const s=$('sido').value;
+  const sidoLabel=s?$('sido').options[$('sido').selectedIndex].text:'전체';
+  const clLabels=selClCd.size>0?[...selClCd].map(cd=>CL_NM[cd]).join(', '):'전체 종별';
+  const condLabel=`${sidoLabel} / ${clLabels}`;
+  showP(true,2,`[${condLabel}] 데이터 요청 중...`);
 
-  const condLabel=(s?$('sido').options[$('sido').selectedIndex].text:'전체')+
-                  ' / '+(c?$('clCd').options[$('clCd').selectedIndex].text:'전체 종별');
-  showP(true,2,`[${condLabel}] 첫 페이지 요청 중...`);
+  // 선택된 종별 목록 (없으면 전체 = 코드 없이 1회 호출)
+  const targets=selClCd.size>0?[...selClCd]:[''];
 
   let ok=false;
   let lastErr='';
 
   try{
-    let page=1, total=0, retryCount=0;
-    while(true){
-      let res;
-      try {
-        res=await fetchPage(ex,page);
-      } catch(e) {
-        if(retryCount<2 && (e.message.includes('시간 초과')||e.message.includes('HTTP 5'))){
-          retryCount++;
-          showP(true,null,`재시도 중 (${retryCount}/2)...`);
-          await delay(2000);
-          continue;
+    for(let ti=0;ti<targets.length;ti++){
+      const cd=targets[ti];
+      const ex={};
+      if(s)  ex.sidoCd=s;
+      if(cd) ex.clCd=cd;
+      const label=cd?CL_NM[cd]:'전체';
+
+      let page=1, total=0, retryCount=0;
+      while(true){
+        let res;
+        try {
+          res=await fetchPage(ex,page);
+        } catch(e) {
+          if(retryCount<2 && (e.message.includes('시간 초과')||e.message.includes('HTTP 5'))){
+            retryCount++;
+            showP(true,null,`[${label}] 재시도 중 (${retryCount}/2)...`);
+            await delay(2000);
+            continue;
+          }
+          throw e;
         }
-        throw e;
+        retryCount=0;
+
+        const rc=String(res.rc||'00').replace(/^0+/,'') || '0';
+        if(!['0','00','000','0000'].includes(rc) && rc!==''){
+          const rcMsg=RC_MSG[rc]||res.rm||'알 수 없는 오류';
+          throw new Error(`API 오류 [${res.rc}]: ${rcMsg}`);
+        }
+
+        const itemLen=res.items?.length||0;
+        if(total===0 && itemLen>0) total=itemLen*page+itemLen;
+        if(res.totalCount>0) total=res.totalCount;
+        if(itemLen===0) break;
+
+        allData.push(...res.items);
+        const basePct=(ti/targets.length)*100;
+        const subPct=total>0?Math.min(((allData.length-(ti*(total||1)))/Math.max(total,1))*100,97):50;
+        const pct=Math.min(basePct+(subPct/targets.length),97);
+        showP(true,pct,`[${label}] ${allData.length.toLocaleString()}건 수집 중...`);
+
+        if(allData.length-(ti*total)>=total) break;
+        page++;
+        await delay(150);
       }
-      retryCount=0;
-
-      // 결과코드 처리
-      const rc=String(res.rc||'00').replace(/^0+/,'') || '0';
-      if(!['0','00','000','0000'].includes(rc) && rc!==''){
-        const rcMsg=RC_MSG[rc]||res.rm||'알 수 없는 오류';
-        throw new Error(`API 오류 [${res.rc}]: ${rcMsg}`);
-      }
-
-      const itemLen=res.items?.length||0;
-      if(total===0 && itemLen>0) total=itemLen*page+itemLen;
-      if(res.totalCount>0) total=res.totalCount;
-
-      if(itemLen===0) break;
-
-      allData.push(...res.items);
-      const pct=total>0?Math.min((allData.length/total)*100,97):50;
-      showP(true,pct,`수집 중... ${allData.length.toLocaleString()} / ${total.toLocaleString()}건`);
-
-      if(allData.length>=total) break;
-      page++;
-      await delay(150);
     }
 
     if(allData.length>0) ok=true;
@@ -790,6 +815,10 @@ function hideErr(){$('errBox').classList.add('hidden');$('errBox').innerHTML='';
 function resetAll(){
   allData=[];filteredData=[];displayData=[];
   selCats.clear();selItems.clear();
+  selClCd.clear(); selClCd.add('31');
+  document.querySelectorAll('#clCdChips .chip').forEach(c=>{
+    c.classList.toggle('on', c.dataset.cd==='31');
+  });
   // catSection은 유지, 나머지만 숨김
   ['itemSection','resultSection','summarySection'].forEach(id=>$(id).classList.add('hidden'));
   ['s1badge','s2badge','s3badge'].forEach(id=>{const el=$(id);if(el)el.classList.remove('done');});
@@ -809,7 +838,7 @@ function resetAll(){
 }
 
 // ─── 페이지 로드 시 초기화 ──────────────────────────────────────
-document.addEventListener('DOMContentLoaded', initCatGrid);
+document.addEventListener('DOMContentLoaded', ()=>{ initCatGrid(); initClCdChips(); });
 </script>
 </body>
 </html>
