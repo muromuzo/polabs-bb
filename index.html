@@ -345,7 +345,11 @@ function onSidoChange(){
     const c=document.createElement('span');
     c.className='chip';
     c.textContent=nm;
-    c.onclick=()=>{ selSggu.has(nm)?selSggu.delete(nm):selSggu.add(nm); c.classList.toggle('on'); };
+    c.onclick=()=>{
+      selSggu.has(nm)?selSggu.delete(nm):selSggu.add(nm);
+      c.classList.toggle('on');
+      if(allData.length>0) applyFilter();
+    };
     wrap.appendChild(c);
   });
   row.classList.remove('hidden');
@@ -353,10 +357,12 @@ function onSidoChange(){
 function buildSgguChips(){ /* 데이터 로드 후 추가 필터 불필요 — onSidoChange로 대체 */ }
 function selectAllSggu(){
   $('sgguChips').querySelectorAll('.chip').forEach(c=>{ selSggu.add(c.textContent); c.classList.add('on'); });
+  if(allData.length>0) applyFilter();
 }
 function clearSggu(){
   selSggu.clear();
   $('sgguChips').querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
+  if(allData.length>0) applyFilter();
 }
 
 function initClCdChips(){
@@ -592,18 +598,24 @@ function buildCatMap(){
 
 // ─── 과목 카드: 데이터 로드 후 항목 수 업데이트 ──────────────────
 function buildCatGrid(){
-  const allCats=[...CATS,CAT_ETC];
-  allCats.forEach(cat=>{
-    const cnt=(catItemMap[cat.id]||new Set()).size;
+  updateCatCounts(allData);
+  $('s2badge').classList.add('done');
+}
+
+// ─── 카테고리 카드 레코드수 업데이트 (baseData 기준) ─────────────
+function updateCatCounts(baseData){
+  const counts={};
+  [...CATS,CAT_ETC].forEach(c=>counts[c.id]=0);
+  baseData.forEach(r=>{ if(r._catId && counts[r._catId]!==undefined) counts[r._catId]++; });
+  [...CATS,CAT_ETC].forEach(cat=>{
+    const cnt=counts[cat.id]||0;
     const cntEl=document.getElementById(`cnt_${cat.id}`);
     const subEl=document.getElementById(`sub_${cat.id}`);
     const card=$('catGrid').querySelector(`[data-id="${cat.id}"]`);
-    if(cntEl) cntEl.textContent=cnt;
-    if(subEl) subEl.textContent=`${cnt}개 항목`;
-    // 항목 없는 과목은 흐리게
+    if(cntEl) cntEl.textContent=cnt>0?cnt.toLocaleString():'-';
+    if(subEl) subEl.textContent=cnt>0?`${cnt.toLocaleString()}건`:'해당 없음';
     if(card) card.style.opacity=cnt===0?'0.35':'1';
   });
-  $('s2badge').classList.add('done');
 }
 
 function toggleCat(id,card){
@@ -674,9 +686,12 @@ function clearItems(){
 
 // ─── 데이터 필터링 ─────────────────────────────────────────────
 function applyFilter(){
-  // 구/군 필터
+  // 구/군 필터 (trim으로 공백 차이 무시)
   let base=allData;
-  if(selSggu.size>0) base=base.filter(r=>selSggu.has(r.sgguCdNm||''));
+  if(selSggu.size>0) base=base.filter(r=>selSggu.has((r.sgguCdNm||'').trim()));
+
+  // 카테고리 카드 카운트를 구/군 필터 기준으로 갱신
+  if(allData.length>0) updateCatCounts(base);
 
   // 과목 기준
   if(selCats.size>0) base=base.filter(r=>selCats.has(r._catId));
@@ -721,7 +736,14 @@ function renderTable(pg){
 
   const tbody=$('tblBody');
   if(!slice.length){
-    tbody.innerHTML='<tr><td colspan="8" class="text-center py-10 text-gray-400">데이터 없음</td></tr>';
+    let emptyMsg='데이터 없음';
+    if(allData.length>0 && selSggu.size>0 && selCats.size>0)
+      emptyMsg=`선택한 구/군에 해당 과목 데이터가 없습니다`;
+    else if(allData.length>0 && selSggu.size>0)
+      emptyMsg=`선택한 구/군에 해당 데이터가 없습니다`;
+    else if(allData.length>0 && q)
+      emptyMsg=`'${q}' 검색 결과 없음`;
+    tbody.innerHTML=`<tr><td colspan="8" class="text-center py-10 text-gray-400">${emptyMsg}</td></tr>`;
     $('resultSection').classList.remove('hidden');
     return;
   }
