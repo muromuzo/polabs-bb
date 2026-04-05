@@ -109,12 +109,10 @@
         <div id="clCdChips" class="flex flex-wrap gap-2">
           <span class="chip" data-cd="01">상급종합병원</span>
           <span class="chip" data-cd="11">종합병원</span>
-          <span class="chip" data-cd="21">병원</span>
-          <span class="chip on" data-cd="31">의원</span>
-          <span class="chip" data-cd="28">치과병원</span>
-          <span class="chip" data-cd="29">치과의원</span>
-          <span class="chip" data-cd="41">한방병원</span>
-          <span class="chip" data-cd="51">한의원</span>
+          <span class="chip on" data-cd="21">병원</span>
+          <span class="chip" data-cd="41">치과병원</span>
+          <span class="chip" data-cd="92">한방병원</span>
+          <span class="chip" data-cd="28">요양병원</span>
         </div>
       </div>
       <!-- 구/군 (시도 선택 시 표시) -->
@@ -301,7 +299,7 @@ let displayData   = [];   // 테이블 표시용
 let catItemMap    = {};   // catId → Set(itemName)
 let selCats       = new Set();  // 선택된 과목 ID
 let selItems      = new Set();  // 선택된 세부항목명
-let selClCd       = new Set(['31']); // 선택된 기관종별 코드 (기본: 의원)
+let selClCd       = new Set(['21']); // 선택된 기관종별 코드 (기본: 병원)
 let selSggu       = new Set();       // 선택된 구/군명
 let sortKey       = 'yadmNm';
 let sortDir       = 1;
@@ -309,8 +307,8 @@ let curPage       = 1;
 const PAGE_SZ     = 50;
 let busy          = false;
 
-const CL_NM = {'01':'상급종합병원','11':'종합병원','21':'병원','31':'의원',
-                '28':'치과병원','29':'치과의원','41':'한방병원','51':'한의원'};
+const CL_NM = {'01':'상급종합병원','11':'종합병원','21':'병원',
+                '41':'치과병원','92':'한방병원','28':'요양병원','29':'정신병원'};
 
 const SGGU_MAP = {
   '110000':['종로구','중구','용산구','성동구','광진구','동대문구','중랑구','성북구','강북구','도봉구','노원구','은평구','서대문구','마포구','양천구','강서구','구로구','금천구','영등포구','동작구','관악구','서초구','강남구','송파구','강동구'],
@@ -354,9 +352,44 @@ function onSidoChange(){
   });
   row.classList.remove('hidden');
 }
-function buildSgguChips(){ /* 데이터 로드 후 추가 필터 불필요 — onSidoChange로 대체 */ }
+// 데이터 로드 후: 실제 API 데이터의 sgguCdNm 값으로 칩 재구성 (100% 정확 매칭)
+function buildSgguChips(){
+  const actualNames=[...new Set(
+    allData.map(r=>(r.sgguCdNm||'').trim()).filter(Boolean)
+  )].sort((a,b)=>a.localeCompare(b,'ko'));
+  if(!actualNames.length) return;
+  // 시도 접두어 제거용 (API가 "울산남구" 형태로 줄 때 → "남구"로 표시)
+  const sidoCdNm=(allData.find(r=>r.sidoCdNm)?.sidoCdNm||'').trim();
+  const row=$('sgguRow'), wrap=$('sgguChips');
+  const prevSel=new Set([...selSggu]);
+  selSggu.clear();
+  wrap.innerHTML='';
+  actualNames.forEach(nm=>{
+    const c=document.createElement('span');
+    c.className='chip';
+    // 표시명: 시도 접두어 제거해서 깔끔하게
+    let display=nm;
+    if(sidoCdNm && nm.startsWith(sidoCdNm)){
+      const stripped=nm.slice(sidoCdNm.length).trim();
+      if(stripped) display=stripped;
+    }
+    c.textContent=display;
+    c.dataset.actualNm=nm; // 실제 API 값 저장 (필터링에 사용)
+    if(prevSel.has(nm)||prevSel.has(display)){ c.classList.add('on'); selSggu.add(nm); }
+    c.onclick=()=>{
+      selSggu.has(nm)?selSggu.delete(nm):selSggu.add(nm);
+      c.classList.toggle('on');
+      if(allData.length>0) applyFilter();
+    };
+    wrap.appendChild(c);
+  });
+  row.classList.remove('hidden');
+}
 function selectAllSggu(){
-  $('sgguChips').querySelectorAll('.chip').forEach(c=>{ selSggu.add(c.textContent); c.classList.add('on'); });
+  $('sgguChips').querySelectorAll('.chip').forEach(c=>{
+    const nm=c.dataset.actualNm||c.textContent; // 실제 API 값 사용
+    selSggu.add(nm); c.classList.add('on');
+  });
   if(allData.length>0) applyFilter();
 }
 function clearSggu(){
@@ -901,9 +934,9 @@ function hideErr(){$('errBox').classList.add('hidden');$('errBox').innerHTML='';
 function resetAll(){
   allData=[];filteredData=[];displayData=[];
   selCats.clear();selItems.clear();
-  selClCd.clear(); selClCd.add('31');
+  selClCd.clear(); selClCd.add('21');
   document.querySelectorAll('#clCdChips .chip').forEach(c=>{
-    c.classList.toggle('on', c.dataset.cd==='31');
+    c.classList.toggle('on', c.dataset.cd==='21');
   });
   selSggu.clear();
   $('sgguChips').querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
